@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
 		int q;
 		cin >> q;
 		DWORD numberBytes;
-		if (!WriteFile(hPipe, &q, sizeof(int), &numberBytes, FALSE))
+		if (!WriteFile(hPipe, &q, sizeof(int), &numberBytes, NULL))
 		{
 			cout << "ERROR! Cannot send new query type to server\n";
 			continue;
@@ -91,37 +91,33 @@ int main(int argc, char* argv[])
 			cout << "Enter employee's id\n";
 			cin >> id;
 
-			if (!WriteFile(hPipe, &id, sizeof(int), &numberBytes, FALSE))
+			if (!WriteFile(hPipe, &id, sizeof(int), &numberBytes, NULL))
 			{
 				cout << "ERROR! Cannot send new query type to server\n";
 				continue;
 			}
 
-			if (q == 1)
+			bool isCorrectEmp = false;
+			if (!ReadFile(hPipe, &isCorrectEmp, sizeof(bool), &numberBytes, NULL))
 			{
-				cout << "enter new name\n";
-				char name[10];
-				cin >> name;
+				cout << "ERROR! Cannot send new query type to server\n";
+				continue;
+			}
 
-				cout << "enter new hours count\n";
-				double hours;
-				cin >> hours;
-				employee emp(id, name, hours);
-				
-				if (!WriteFile(hPipe, &emp, sizeof(employee), &numberBytes, FALSE))
-				{
-					cout << "ERROR! Cannot send new employee to server\n";
-					continue;
-				}
-				else
-				{
-					cout << "Data is modificated\n";
-				}
+			if (!isCorrectEmp) 
+			{
+				cout << "Incorrect employee id\n";
+				continue;
 			}
 			else
 			{
+				cout << "Correct employee id\n";
+			}
+
+			if (q == 1)
+			{
 				employee emp;
-				if (!ReadFile(hPipe, &emp, sizeof(employee), &numberBytes, FALSE))
+				if (!ReadFile(hPipe, &emp, sizeof(employee), &numberBytes, NULL))
 				{
 					cout << "ERROR! Cannot get employee from server\n";
 					continue;
@@ -129,6 +125,50 @@ int main(int argc, char* argv[])
 				else
 				{
 					cout << emp.num << ' ' << emp.name << ' ' << emp.hours << "\n";
+				}
+
+				cout << "enter new name\n";
+				char name[10];
+				cin >> name;
+
+				cout << "enter new hours count\n";
+				double hours;
+				cin >> hours;
+				employee empNew(id, name, hours);
+				
+				if (!WriteFile(hPipe, &empNew, sizeof(employee), &numberBytes, NULL))
+				{
+					cout << "ERROR! Cannot send new employee to server\n";
+					continue;
+				}
+				else
+				{
+					DWORD data = 1;
+					ReadFile(hPipe, &data, sizeof(DWORD), &numberBytes, NULL);
+					cout << "Data is modificated\n";
+					cout << "enter any char to continue\n";
+					char c;
+					cin >> c;
+					WriteFile(hPipe, &data, sizeof(DWORD), &numberBytes, NULL);
+				}
+			}
+			else
+			{
+				employee emp;
+				if (!ReadFile(hPipe, &emp, sizeof(employee), &numberBytes, NULL))
+				{
+					cout << "ERROR! Cannot get employee from server\n";
+					continue;
+				}
+				else
+				{
+					cout << emp.num << ' ' << emp.name << ' ' << emp.hours << "\n";
+					cout << "enter any char to continue\n";
+					char c;
+					cin >> c;
+					DWORD data = 1;
+					WriteFile(hPipe, &data, sizeof(DWORD), &numberBytes, NULL);
+					
 				}
 			}
 		}

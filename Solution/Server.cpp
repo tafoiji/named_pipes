@@ -12,7 +12,7 @@ using std::string;
 using std::wstring;
 
 int COUNT_CLIENTS = 5;
-int COUNT_OBJECTS = 5;
+int COUNT_OBJECTS = 1;
 wstring CLIENT_PROCESS_NAME = wstring(L"client");
 wstring FILE_NAME = L"default.bin";
 
@@ -50,7 +50,7 @@ DWORD WINAPI handleQuery(void* param)
 	while (true)
 	{
 		
-		if (!ReadFile(hPipes[id], &q_type, sizeof(int), &bytesNumber, FALSE))
+		if (!ReadFile(hPipes[id], &q_type, sizeof(int), &bytesNumber, NULL))
 		{
 			cout << "cannot read query type";
 			break;
@@ -61,72 +61,106 @@ DWORD WINAPI handleQuery(void* param)
 			break;
 		}
 
-		if (!ReadFile(hPipes[id], &i, sizeof(int), &bytesNumber, FALSE))
+		if (!ReadFile(hPipes[id], &i, sizeof(int), &bytesNumber, NULL))
 		{
 			cout << "cannot read query type";
 			break;
 		}
 
+		bool ans = true;
+		if (i < 0 || i >= COUNT_OBJECTS)
+		{
+			ans = false;
+			WriteFile(hPipes[id], &ans, sizeof(bool), &bytesNumber, NULL);
+			continue;
+		}
+		else WriteFile(hPipes[id], &ans, sizeof(bool), &bytesNumber, NULL);
+
 		//q_type == 1 => modificate
 		//q_type == 2 => read
 
-		std::fstream file(FILE_NAME, std::ios::in | std::ios::out | std::ios::binary);
-
 		if (q_type == 1)
 		{
-			if (!ReadFile(hPipes[id], &emp, sizeof(employee), &bytesNumber, FALSE))
+			//cout << "entered\n";
+			
+			//cout << "exited\n";
+
+			WaitForSingleObject(hSemaphores[i], INFINITE);
+			std::fstream file(FILE_NAME, std::ios::in | std::ios::out | std::ios::binary);
+			std::streampos linePointerRead(std::streamoff(i * sizeof(employee)));
+			file.seekp(linePointerRead);
+			file.read((char*)&emp, sizeof(employee));
+			if (!WriteFile(hPipes[id], &emp, sizeof(employee), &bytesNumber, NULL))
+			{
+				cout << "cannot send new employee to client\n";
+				file.close();
+				break;
+			}
+
+			if (!ReadFile(hPipes[id], &emp, sizeof(employee), &bytesNumber, NULL))
 			{
 				cout << "cannot read new employee";
 				file.close();
 				break;
 			}
 
-			if (i < 0 || i > COUNT_OBJECTS)
-			{
-				cout << "incorrect file index\n";
-				file.close();
-				continue;
-			}
+			file.close();
+			ReleaseSemaphore(hSemaphores[i], 1, NULL);
 
-			for (int j = 0; j < COUNT_OBJECTS; j++)
+			for (int j = 0; j < COUNT_CLIENTS; j++)
 			{
 				WaitForSingleObject(hSemaphores[i], INFINITE);
 			}
 
-			std::streampos linePointer(std::streamoff(i * sizeof(employee)));
-			file.seekp(linePointer);
+			file.open(FILE_NAME, std::ios::in | std::ios::out | std::ios::binary);
+			std::streampos linePointerWrite(std::streamoff(i * sizeof(employee)));
+			file.seekp(linePointerWrite);
 			file.write((char*)&emp, sizeof(employee));
-			for (int j = 0; j < COUNT_OBJECTS; j++)
+
+			DWORD data = 1;
+			if (!WriteFile(hPipes[id], &data, sizeof(DWORD), &bytesNumber, NULL))
+			{
+				cout << "cannot send message about correct writing in file\n";
+				break;
+			}
+
+			if (!ReadFile(hPipes[id], &data, sizeof(DWORD), &bytesNumber, NULL))
+			{
+				cout << "cannot read end flag\n";
+				break;
+			}
+
+			file.close();
+			for (int j = 0; j < COUNT_CLIENTS; j++)
 			{
 				ReleaseSemaphore(hSemaphores[i], 1, NULL);
 			}
 		}
 		else if (q_type == 2)
 		{
-			if (i < 0 || i > COUNT_OBJECTS)
-			{
-				cout << "incorrect file index\n";
-				file.close();
-				continue;
-			}
-
-
 			WaitForSingleObject(hSemaphores[i], INFINITE);
-
+			std::fstream file(FILE_NAME, std::ios::in | std::ios::out | std::ios::binary);
 			std::streampos linePointer(std::streamoff(i * sizeof(employee)));
 			file.seekp(linePointer);
 			file.read((char*)&emp, sizeof(employee));
-			if (!WriteFile(hPipes[id], &emp, sizeof(employee), &bytesNumber, FALSE))
+			if (!WriteFile(hPipes[id], &emp, sizeof(employee), &bytesNumber, NULL))
 			{
-				cout << "cannot send new employee to client";
+				cout << "cannot send new employee to client\n";
 				file.close();
 				break;
 			}
 
+			DWORD data;
+			if (!ReadFile(hPipes[id], &data, sizeof(DWORD), &bytesNumber, NULL))
+			{
+				cout << "cannot read end flag\n";
+				break;
+			}
+
+			file.close();
 			ReleaseSemaphore(hSemaphores[i], 1, NULL);
 		}
 
-		file.close();
 		
 	}
 
@@ -145,7 +179,7 @@ void closeHandles()
 			if (pi[i].hProcess)
 			{
 				CloseHandle(pi[i].hProcess);
-				CloseHandle(pi[i].hProcess);
+				CloseHandle(pi[i].hThread);
 			}
 		}
 
@@ -260,7 +294,7 @@ int main()
 
 	for (int i = 0; i < COUNT_OBJECTS; i++)
 	{
-		hSemaphores[i] = CreateSemaphore(NULL, COUNT_OBJECTS, COUNT_OBJECTS, (CLIENT_PROCESS_NAME + std::to_wstring(i)).c_str());
+		hSemaphores[i] = CreateSemaphore(NULL, COUNT_CLIENTS, COUNT_CLIENTS, NULL);
 		if (!hSemaphores[i])
 		{
 			cout << "cannot create event for all lines\n";
@@ -273,7 +307,7 @@ int main()
 		hPipes[i] = CreateNamedPipe(
 			(wstring(L"\\\\.\\pipe\\") + CLIENT_PROCESS_NAME + std::to_wstring(i)).c_str(),
 			PIPE_ACCESS_DUPLEX, 
-			PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 
+			PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 
 			COUNT_CLIENTS,
 			0,
 			0, 
@@ -325,7 +359,7 @@ int main()
 			return GetLastError();
 		}
 
-		CloseHandle(&pi[i].hProcess);
+		//CloseHandle(&pi[i].hProcess);
 	}
 
 	WaitForMultipleObjects(COUNT_CLIENTS, hThreads, TRUE, INFINITE);
